@@ -130,8 +130,8 @@ def check_mesh_integrity(obj):
     except Exception as e:
         return False, f"Mesh check failed: {str(e)}"
 
-def safe_apply_decimate_modifier(obj, ratio):
-    """Безопасное применение модификатора Decimate с обработкой ошибок"""
+def apply_decimate_modifier(obj, ratio):
+    """Применяет модификатор Decimate к объекту"""
     try:
         print(f"🔧 Applying decimation with ratio: {ratio}")
         
@@ -159,28 +159,18 @@ def safe_apply_decimate_modifier(obj, ratio):
         except Exception as e:
             print(f"⚠️ Operator apply failed, trying alternative method: {e}")
             # Альтернативный метод
-            try:
-                depsgraph = bpy.context.evaluated_depsgraph_get()
-                eval_obj = obj.evaluated_get(depsgraph)
-                mesh_copy = bpy.data.meshes.new_from_object(eval_obj)
-                
-                # УДАЛЯЕМ МОДИФИКАТОР И ПРИМЕНЯЕМ НОВЫЙ МЕШ
-                obj.modifiers.remove(mod)
-                old_mesh = obj.data
-                obj.data = mesh_copy
-                
-                # УДАЛЯЕМ СТАРЫЙ МЕШ
-                bpy.data.meshes.remove(old_mesh)
-                print(f"✅ Decimation applied via alternative method!")
-            except Exception as alt_error:
-                print(f"❌ Alternative method also failed: {alt_error}")
-                # Последняя попытка - просто удаляем модификатор
-                try:
-                    obj.modifiers.remove(mod)
-                    print(f"⚠️ Removed modifier without applying")
-                except:
-                    pass
-                raise alt_error
+            depsgraph = bpy.context.evaluated_depsgraph_get()
+            eval_obj = obj.evaluated_get(depsgraph)
+            mesh_copy = bpy.data.meshes.new_from_object(eval_obj)
+            
+            # УДАЛЯЕМ МОДИФИКАТОР И ПРИМЕНЯЕМ НОВЫЙ МЕШ
+            obj.modifiers.remove(mod)
+            old_mesh = obj.data
+            obj.data = mesh_copy
+            
+            # УДАЛЯЕМ СТАРЫЙ МЕШ
+            bpy.data.meshes.remove(old_mesh)
+            print(f"✅ Decimation applied via alternative method!")
         
         # 🔴 ПРОВЕРКА ПОСЛЕ ДЕЦИМАЦИИ
         post_check, post_message = check_mesh_integrity(obj)
@@ -189,11 +179,8 @@ def safe_apply_decimate_modifier(obj, ratio):
         else:
             print(f"✅ Mesh integrity check passed")
         
-        return True
-        
     except Exception as e:
         print(f"❌ Decimate modifier failed: {e}")
-        return False
 
 def material_based_decimate(context, original_obj, props):
     """Material-based decimation - разные ratio для разных материалов"""
@@ -269,12 +256,9 @@ def material_based_decimate(context, original_obj, props):
                 print(f"  🎯 LowDetail material, ratio: {target_ratio}")
             
             # Применяем decimation к ЭТОЙ ЧАСТИ
-            success = safe_apply_decimate_modifier(material_obj, target_ratio)
-            if success:
-                decimated_parts.append(material_obj)
-            else:
-                print(f"❌ Failed to decimate material {material_index}, skipping")
-                bpy.data.objects.remove(material_obj)
+            apply_decimate_modifier(material_obj, target_ratio)
+            
+            decimated_parts.append(material_obj)
         
         # Объединяем все части обратно
         if len(decimated_parts) > 0:
@@ -350,12 +334,6 @@ def material_based_decimate(context, original_obj, props):
         
     except Exception as e:
         print(f"❌ Material-based decimation failed: {e}")
-        # Восстанавливаем состояние
-        safe_select_all('DESELECT')
-        for obj in original_selected:
-            obj.select_set(True)
-        context.view_layer.objects.active = original_active
-        
         # Fallback на стандартную децимацию
         try:
             return standard_decimate(context, original_obj, props)
@@ -383,12 +361,7 @@ def standard_decimate(context, original_obj, props):
         
         # Применяем децимацию
         print(f"🔥 STEP 1: Applying decimation with ratio {props.ratio}")
-        success = safe_apply_decimate_modifier(lowpoly_obj, props.ratio)
-        
-        if not success:
-            print("❌ Decimation failed, cleaning up...")
-            bpy.data.objects.remove(lowpoly_obj)
-            return None
+        apply_decimate_modifier(lowpoly_obj, props.ratio)
         
         # Анализ исходного меша с поддержкой crease
         original_bm = bmesh.new()
@@ -485,22 +458,18 @@ def standard_decimate(context, original_obj, props):
         except Exception as restore_error:
             print(f"SharpDecimate: Restore failed: {restore_error}")
         print(f"❌ Standard decimation failed: {e}")
-        return None
+        raise e
 
 def decimate_single_object(context, original_obj, props):
     """Основная логика упрощения одного объекта с сохранением острых граней"""
     
-    try:
-        # Выбираем алгоритм децимации
-        if props.use_material_decimation and original_obj.data.materials:
-            print("🎨 Using MATERIAL-BASED decimation")
-            return material_based_decimate(context, original_obj, props)
-        else:
-            print("🔧 Using STANDARD decimation")
-            return standard_decimate(context, original_obj, props)
-    except Exception as e:
-        print(f"❌ decimate_single_object failed: {e}")
-        return None
+    # Выбираем алгоритм децимации
+    if props.use_material_decimation and original_obj.data.materials:
+        print("🎨 Using MATERIAL-BASED decimation")
+        return material_based_decimate(context, original_obj, props)
+    else:
+        print("🔧 Using STANDARD decimation")
+        return standard_decimate(context, original_obj, props)
 
 def register():
     try:

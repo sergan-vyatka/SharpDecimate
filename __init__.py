@@ -2,7 +2,7 @@
 bl_info = {
     "name": "SharpDecimate",
     "author": "NEFAS, Sukhikh Sergey",
-    "version": (1, 0, 3),
+    "version": (1, 0, 4),
     "blender": (3, 6, 23),
     "location": "View3D > Sidebar > Tool",
     "description": "Decimate with sharp edges preservation - FREE VERSION",
@@ -17,12 +17,11 @@ import os
 # ТОЛЬКО БАЗОВЫЕ МОДУЛИ FREE-ВЕРСИИ
 base_modules = [
     ".locale_loader",
-    ".preferences", 
-    ".utils.cleanup",
+    ".preferences",
     ".core.edge_analyzer",
     ".core.base_decimate",
     ".operators.generate_lowpoly",
-    ".ui.panel"  # Теперь здесь есть новый оператор
+    ".ui.panel"
 ]
 
 # FREE-ВЕРСИЯ - НЕТ PRO-ФУНКЦИЙ
@@ -82,9 +81,7 @@ def register():
     if hasattr(get_text, "_cache"):
         delattr(get_text, "_cache")
     
-    # Безопасная очистка временных данных
-    from .utils.cleanup import safe_cleanup
-    safe_cleanup()
+    # УДАЛЕНО: safe_cleanup() - опасная функция
     
     # Регистрация всех модулей
     register_modules(all_modules)
@@ -96,9 +93,7 @@ def unregister():
     # Отмена регистрации модулей
     unregister_modules(all_modules)
     
-    # Полная очистка
-    from .utils.cleanup import reset_all
-    reset_all()
+    # УДАЛЕНО: reset_all() - опасная функция
     
     # Очистка кэша локалей
     from .locale_loader import get_text

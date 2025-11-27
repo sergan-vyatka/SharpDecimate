@@ -28,48 +28,33 @@ class SHARPDECIMATE_OT_generate_lowpoly(Operator):
             self.report({'WARNING'}, get_text("no_mesh", lang))
             return {'CANCELLED'}
         
-        # 🔴 НАЧАЛО ПРОГРЕСС-БАРА
-        wm = context.window_manager
-        wm.progress_begin(0, 100)
+        # ПРАВКА: Добавляем валидацию меша
+        if not self.validate_mesh(original_obj):
+            self.report({'ERROR'}, get_text("invalid_mesh", lang))
+            return {'CANCELLED'}
         
-        try:
-            # ПРАВКА: Добавляем валидацию меша
-            if not self.validate_mesh(original_obj):
-                self.report({'ERROR'}, get_text("invalid_mesh", lang))
-                wm.progress_end()
-                return {'CANCELLED'}
-            
-            wm.progress_update(10)
-            
-            # 🔴 ПРОВЕРКА ВОДОНЕПРОНИЦАЕМОСТИ ДО ДЕЦИМАЦИИ
-            pre_check_ok, pre_check_message = self.validate_mesh_watertight(original_obj)
-            if not pre_check_ok:
-                self.report({'WARNING'}, f"Mesh issues before decimation: {pre_check_message}")
-                # Не отменяем, но предупреждаем пользователя
-            
-            wm.progress_update(20)
-            
-            # Сохраняем статистику исходного меша
-            original_polycount = len(original_obj.data.polygons)
-            original_vertices = len(original_obj.data.vertices)
-            
-            # В free-версии только одиночный объект
-            if len(context.selected_objects) > 1:
-                self.report({'WARNING'}, get_text("multi_select", lang))
-                wm.progress_end()
-                return {'CANCELLED'}
+        # 🔴 ПРОВЕРКА ВОДОНЕПРОНИЦАЕМОСТИ ДО ДЕЦИМАЦИИ
+        pre_check_ok, pre_check_message = self.validate_mesh_watertight(original_obj)
+        if not pre_check_ok:
+            self.report({'WARNING'}, f"Mesh issues before decimation: {pre_check_message}")
+            # Не отменяем, но предупреждаем пользователя
+        
+        # Сохраняем статистику исходного меша
+        original_polycount = len(original_obj.data.polygons)
+        original_vertices = len(original_obj.data.vertices)
+        
+        # В free-версии только одиночный объект
+        if len(context.selected_objects) > 1:
+            self.report({'WARNING'}, get_text("multi_select", lang))
+            return {'CANCELLED'}
 
+        try:
             print(f"🟡 STARTING DECIMATION: {original_obj.name}")
-            
-            # 🔴 БЕЗОПАСНАЯ ДЕЦИМАЦИЯ С ОБРАБОТКОЙ ОШИБОК
-            lowpoly_obj = self.safe_decimate(context, original_obj, props, wm)
+            lowpoly_obj = decimate_single_object(context, original_obj, props)
             
             if lowpoly_obj is None:
                 self.report({'ERROR'}, get_text("decimation_failed", lang))
-                wm.progress_end()
                 return {'CANCELLED'}
-            
-            wm.progress_update(90)
             
             # 🔴 ПРОВЕРКА ВОДОНЕПРОНИЦАЕМОСТИ ПОСЛЕ ДЕЦИМАЦИИ
             post_check_ok, post_check_message = self.validate_mesh_watertight(lowpoly_obj)
@@ -114,7 +99,6 @@ class SHARPDECIMATE_OT_generate_lowpoly(Operator):
                 success_message += f" | ⚠️ Check mesh integrity"
             
             self.report({'INFO'}, success_message)
-            wm.progress_update(100)
             return {'FINISHED'}
             
         except Exception as e:
@@ -123,69 +107,25 @@ class SHARPDECIMATE_OT_generate_lowpoly(Operator):
             print(f"🔴 DECIMATION ERROR: {e}")
             import traceback
             traceback.print_exc()
-            wm.progress_end()
             return {'CANCELLED'}
-        finally:
-            # 🔴 ГАРАНТИРУЕМ ЗАВЕРШЕНИЕ ПРОГРЕСС-БАРА
-            try:
-                wm.progress_end()
-            except:
-                pass
-    
-    def safe_decimate(self, context, original_obj, props, wm):
-        """Безопасная децимация с обработкой ошибок и прогресс-баром"""
-        try:
-            wm.progress_update(30)
-            result = decimate_single_object(context, original_obj, props)
-            wm.progress_update(80)
-            return result
-        except Exception as e:
-            print(f"🔴 Safe decimate failed: {e}")
-            # Восстанавливаем состояние Blender
-            self.restore_blender_state(context, original_obj)
-            return None
-    
-    def restore_blender_state(self, context, original_obj):
-        """Восстановление состояния Blender после ошибки"""
-        try:
-            # Гарантируем выход в объектный режим
-            if context.mode != 'OBJECT':
-                bpy.ops.object.mode_set(mode='OBJECT')
-            
-            # Восстанавливаем выделение оригинала
-            bpy.ops.object.select_all(action='DESELECT')
-            original_obj.select_set(True)
-            context.view_layer.objects.active = original_obj
-            
-            print("✅ Blender state restored after error")
-        except Exception as restore_error:
-            print(f"⚠️ State restore failed: {restore_error}")
     
     def validate_mesh(self, obj):
         """Проверка пригодности меша для упрощения"""
-        try:
-            mesh = obj.data
-            
-            # Проверка что объект доступен
-            if not mesh or not hasattr(mesh, 'polygons'):
-                return False
-            
-            # Проверка минимального количества полигонов
-            if len(mesh.polygons) < 4:
-                return False
-            
-            # Проверка минимального количества вершин
-            if len(mesh.vertices) < 4:
-                return False
-            
-            # Проверка на наличие геометрии
-            if not mesh.polygons:
-                return False
-                
-            return True
-        except Exception as e:
-            print(f"⚠️ Mesh validation error: {e}")
+        mesh = obj.data
+        
+        # Проверка минимального количества полигонов
+        if len(mesh.polygons) < 4:
             return False
+        
+        # Проверка минимального количества вершин
+        if len(mesh.vertices) < 4:
+            return False
+        
+        # Проверка на наличие геометрии
+        if not mesh.polygons:
+            return False
+            
+        return True
     
     def validate_mesh_watertight(self, obj):
         """Проверка что меш водонепроницаем и не имеет проблемной геометрии"""
